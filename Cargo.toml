@@ -1,0 +1,9 @@
+[package]
+name = "mdtfmt"
+version = "0.1.0"
+edition = "2021"
+authors = ["plainalder"]
+license = "MIT"
+description = "A strict-by-default markdown table formatter"
+
+[dependencies]
