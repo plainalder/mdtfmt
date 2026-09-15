@@ -54,19 +54,20 @@ are read from the input and preserved.
 ## Usage
 
 ```
-mdtfmt [--lenient] [FILE]
+mdtfmt [--lenient] [--in-place] [FILE]
 ```
 
-Reads `FILE`, or standard input if `FILE` is omitted or `-`. The formatted
-document is written to standard output; nothing is written back to `FILE`
-in place yet (see roadmap).
+Reads `FILE`, or standard input if `FILE` is omitted or `-`. By default the
+formatted document is written to standard output. Pass `--in-place` to
+write the result back to `FILE` instead; this requires a real file
+argument, since there's nowhere to write back to when reading from stdin.
 
 ## Status
 
 Early skeleton. It handles single tables with a header, a separator row,
 and body rows, including alignment markers and escaped pipes (`\|`) inside
-cells. It does not yet handle in-place editing, tables with multi-line
-cells, or wide (CJK) character widths correctly.
+cells. It does not yet handle tables with multi-line cells or wide (CJK)
+character widths correctly.
 
 ## License
 
