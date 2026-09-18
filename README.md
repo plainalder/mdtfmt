@@ -66,8 +66,10 @@ argument, since there's nowhere to write back to when reading from stdin.
 
 Early skeleton. It handles single tables with a header, a separator row,
 and body rows, including alignment markers and escaped pipes (`\|`) inside
-cells. It does not yet handle tables with multi-line cells or wide (CJK)
-character widths correctly.
+cells. Column widths account for wide East Asian characters (CJK, Hangul,
+fullwidth forms), so tables with those headers or cell contents still line
+up. It does not yet handle tables with multi-line or wrapped cell content,
+or tables nested inside fenced code blocks.
 
 ## License
 

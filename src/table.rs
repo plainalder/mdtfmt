@@ -166,10 +166,10 @@ fn resize<T: Clone>(mut v: Vec<T>, len: usize, fill: T) -> Vec<T> {
 }
 
 fn render_table(table: &Table) -> String {
-    let mut widths: Vec<usize> = table.header.iter().map(|h| h.chars().count()).collect();
+    let mut widths: Vec<usize> = table.header.iter().map(|h| display_width(h)).collect();
     for row in &table.rows {
         for (i, cell) in row.iter().enumerate() {
-            widths[i] = widths[i].max(cell.chars().count());
+            widths[i] = widths[i].max(display_width(cell));
         }
     }
     for w in widths.iter_mut() {
@@ -220,7 +220,7 @@ fn render_separator(widths: &[usize], alignments: &[Alignment]) -> String {
 }
 
 fn pad(cell: &str, width: usize, alignment: Alignment) -> String {
-    let space = width.saturating_sub(cell.chars().count());
+    let space = width.saturating_sub(display_width(cell));
     match alignment {
         Alignment::Right => format!("{}{}", " ".repeat(space), cell),
         Alignment::Center => {
@@ -229,5 +229,88 @@ fn pad(cell: &str, width: usize, alignment: Alignment) -> String {
             format!("{}{}{}", " ".repeat(left), cell, " ".repeat(right))
         }
         Alignment::Left | Alignment::None => format!("{}{}", cell, " ".repeat(space)),
+    }
+}
+
+/// Terminal column width of `s`, counting CJK and other East Asian Wide
+/// characters as 2 columns and combining marks as 0, instead of the 1
+/// column per `char` that `.chars().count()` assumes. Column widths need
+/// this so a table with, say, Chinese headers still lines up.
+fn display_width(s: &str) -> usize {
+    s.chars().map(char_width).sum()
+}
+
+fn char_width(c: char) -> usize {
+    if is_zero_width(c) {
+        0
+    } else if is_wide(c) {
+        2
+    } else {
+        1
+    }
+}
+
+fn is_zero_width(c: char) -> bool {
+    let cp = c as u32;
+    matches!(cp, 0x0300..=0x036F | 0x1AB0..=0x1AFF | 0x1DC0..=0x1DFF | 0x20D0..=0x20FF | 0xFE20..=0xFE2F)
+        || matches!(c, '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{FEFF}')
+}
+
+/// Ranges taken from the "Wide" and "Fullwidth" categories of Unicode's
+/// East Asian Width property (the same ones `wcwidth` treats as 2 columns
+/// wide on a terminal).
+fn is_wide(c: char) -> bool {
+    let cp = c as u32;
+    matches!(
+        cp,
+        0x1100..=0x115F
+            | 0x2E80..=0x303E
+            | 0x3041..=0x33FF
+            | 0x3400..=0x4DBF
+            | 0x4E00..=0x9FFF
+            | 0xA000..=0xA4CF
+            | 0xAC00..=0xD7A3
+            | 0xF900..=0xFAFF
+            | 0xFE30..=0xFE4F
+            | 0xFF00..=0xFF60
+            | 0xFFE0..=0xFFE6
+            | 0x20000..=0x3FFFD
+    )
+}
+
+#[cfg(test)]
+mod width_tests {
+    use super::*;
+
+    #[test]
+    fn ascii_is_one_column_per_char() {
+        assert_eq!(display_width("abc"), 3);
+    }
+
+    #[test]
+    fn cjk_is_two_columns_per_char() {
+        assert_eq!(display_width("你好"), 4);
+        assert_eq!(display_width("名前"), 4);
+    }
+
+    #[test]
+    fn mixed_ascii_and_cjk() {
+        assert_eq!(display_width("id: 你好"), 8);
+    }
+
+    #[test]
+    fn combining_marks_are_zero_width() {
+        // "e" + combining acute accent
+        assert_eq!(display_width("e\u{0301}"), 1);
+    }
+
+    #[test]
+    fn table_with_cjk_header_aligns_by_display_width() {
+        let input = "| 名前 | Score |\n|---|---|\n| Ada | 98 |\n";
+        let output = format_document(input, false).unwrap();
+        let lines: Vec<&str> = output.lines().collect();
+        // "名前" is 4 columns wide, same as the widest cell below it ("Ada").
+        assert_eq!(lines[0], "| 名前 | Score |");
+        assert_eq!(lines[2], "| Ada  | 98    |");
     }
 }
