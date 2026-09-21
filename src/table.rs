@@ -279,6 +279,116 @@ fn is_wide(c: char) -> bool {
 }
 
 #[cfg(test)]
+mod parsing_tests {
+    use super::*;
+
+    #[test]
+    fn split_row_strips_leading_and_trailing_pipes() {
+        assert_eq!(split_row("| a | b |"), vec!["a", "b"]);
+        assert_eq!(split_row("a | b"), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn split_row_keeps_escaped_pipes_inside_a_cell() {
+        assert_eq!(split_row(r"| a\|b | c |"), vec!["a|b", "c"]);
+    }
+
+    #[test]
+    fn split_row_preserves_empty_cells_in_the_middle() {
+        assert_eq!(split_row("| a || c |"), vec!["a", "", "c"]);
+    }
+
+    #[test]
+    fn is_separator_row_accepts_alignment_markers() {
+        assert!(is_separator_row("| --- | :--- | ---: | :---: |"));
+    }
+
+    #[test]
+    fn is_separator_row_rejects_a_row_with_real_content() {
+        assert!(!is_separator_row("| Name | --- |"));
+    }
+
+    #[test]
+    fn parse_alignment_reads_colon_placement() {
+        assert_eq!(parse_alignment("---"), Alignment::None);
+        assert_eq!(parse_alignment(":---"), Alignment::Left);
+        assert_eq!(parse_alignment("---:"), Alignment::Right);
+        assert_eq!(parse_alignment(":---:"), Alignment::Center);
+    }
+
+    #[test]
+    fn strict_mode_rejects_a_separator_with_the_wrong_column_count() {
+        let block = ["| a | b |", "| --- |"];
+        let err = parse_table(&block, false).unwrap_err();
+        assert!(err.to_string().contains("separator row has 1"));
+    }
+
+    #[test]
+    fn strict_mode_rejects_a_ragged_body_row() {
+        let block = ["| a | b |", "| --- | --- |", "| 1 |"];
+        let err = parse_table(&block, false).unwrap_err();
+        assert!(err.to_string().contains("row 1 has 1 column"));
+    }
+
+    #[test]
+    fn lenient_mode_pads_a_short_row_with_empty_cells() {
+        let block = ["| a | b | c |", "| --- | --- | --- |", "| 1 | 2 |"];
+        let table = parse_table(&block, true).unwrap();
+        assert_eq!(table.rows[0], vec!["1", "2", ""]);
+    }
+
+    #[test]
+    fn lenient_mode_truncates_a_long_row() {
+        let block = ["| a | b |", "| --- | --- |", "| 1 | 2 | 3 |"];
+        let table = parse_table(&block, true).unwrap();
+        assert_eq!(table.rows[0], vec!["1", "2"]);
+    }
+
+    #[test]
+    fn lenient_mode_tolerates_a_mismatched_separator() {
+        let block = ["| a | b | c |", "| --- |"];
+        let table = parse_table(&block, true).unwrap();
+        assert_eq!(table.alignments.len(), 3);
+        assert_eq!(table.alignments[1], Alignment::None);
+    }
+
+    #[test]
+    fn format_document_passes_non_table_lines_through_unchanged() {
+        let input = "# Title\n\nSome prose here.\n";
+        assert_eq!(format_document(input, false).unwrap(), input);
+    }
+
+    #[test]
+    fn format_document_formats_every_table_in_a_document() {
+        let input = "\
+Intro text.
+
+| a | b |
+|---|---|
+| 1 | 2 |
+
+Middle text.
+
+| x |
+|---|
+| y |
+";
+        let output = format_document(input, false).unwrap();
+        let lines: Vec<&str> = output.lines().collect();
+        assert_eq!(lines[0], "Intro text.");
+        assert_eq!(lines[2], "| a   | b   |");
+        assert_eq!(lines[6], "Middle text.");
+        assert_eq!(lines[8], "| x   |");
+    }
+
+    #[test]
+    fn strict_mode_error_propagates_through_format_document() {
+        let input = "| a | b |\n|---|---|\n| 1 |\n";
+        assert!(format_document(input, false).is_err());
+    }
+}
+
+#[cfg(test)]
 mod width_tests {
     use super::*;
 
