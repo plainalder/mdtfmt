@@ -68,8 +68,9 @@ Early skeleton. It handles single tables with a header, a separator row,
 and body rows, including alignment markers and escaped pipes (`\|`) inside
 cells. Column widths account for wide East Asian characters (CJK, Hangul,
 fullwidth forms), so tables with those headers or cell contents still line
-up. It does not yet handle tables with multi-line or wrapped cell content,
-or tables nested inside fenced code blocks.
+up. Fenced code blocks (`` ``` `` or `~~~`) are left untouched, so a code
+sample that happens to contain pipe characters isn't mistaken for a table.
+It does not yet handle tables with multi-line or wrapped cell content.
 
 ## License
 

@@ -29,13 +29,31 @@ struct Table {
 
 /// Rewrites every markdown table found in `input` with aligned columns and
 /// consistent pipe placement. Lines outside of a table are passed through
-/// unchanged, so this can safely run over a whole document.
+/// unchanged, so this can safely run over a whole document. Fenced code
+/// blocks (delimited by ``` or ~~~) are passed through verbatim, so a code
+/// sample that happens to contain pipe characters isn't mistaken for a
+/// table.
 pub fn format_document(input: &str, lenient: bool) -> Result<String, FormatError> {
     let lines: Vec<&str> = input.lines().collect();
     let mut out = String::new();
     let mut i = 0;
+    let mut fence: Option<(char, usize)> = None;
     while i < lines.len() {
-        if is_table_row(lines[i]) && i + 1 < lines.len() && is_separator_row(lines[i + 1]) {
+        if let Some((ch, len)) = fence {
+            out.push_str(lines[i]);
+            out.push('\n');
+            if matches!(fence_marker(lines[i]), Some((c, n)) if c == ch && n >= len) {
+                fence = None;
+            }
+            i += 1;
+            continue;
+        }
+        if let Some(marker) = fence_marker(lines[i]) {
+            fence = Some(marker);
+            out.push_str(lines[i]);
+            out.push('\n');
+            i += 1;
+        } else if is_table_row(lines[i]) && i + 1 < lines.len() && is_separator_row(lines[i + 1]) {
             let start = i;
             let mut end = i + 2;
             while end < lines.len() && is_table_row(lines[end]) {
@@ -51,6 +69,20 @@ pub fn format_document(input: &str, lenient: bool) -> Result<String, FormatError
         }
     }
     Ok(out)
+}
+
+/// Recognizes a fenced code block delimiter (three or more backticks or
+/// tildes, ignoring leading indentation), returning the fence character and
+/// its length. A closing fence must use the same character and be at least
+/// as long as the opening one, per CommonMark.
+fn fence_marker(line: &str) -> Option<(char, usize)> {
+    let trimmed = line.trim_start();
+    let ch = trimmed.chars().next()?;
+    if ch != '`' && ch != '~' {
+        return None;
+    }
+    let len = trimmed.chars().take_while(|&c| c == ch).count();
+    (len >= 3).then_some((ch, len))
 }
 
 fn is_table_row(line: &str) -> bool {
@@ -385,6 +417,79 @@ Middle text.
     fn strict_mode_error_propagates_through_format_document() {
         let input = "| a | b |\n|---|---|\n| 1 |\n";
         assert!(format_document(input, false).is_err());
+    }
+
+    #[test]
+    fn format_document_leaves_a_table_look_alike_inside_a_fenced_code_block_untouched() {
+        let input = "\
+```
+| a | b |
+|---|---|
+| 1 |
+```
+";
+        assert_eq!(format_document(input, false).unwrap(), input);
+    }
+
+    #[test]
+    fn format_document_formats_a_real_table_after_a_fenced_code_block() {
+        let input = "\
+```
+some code
+```
+
+| a | b |
+|---|---|
+| 1 | 2 |
+";
+        let output = format_document(input, false).unwrap();
+        let lines: Vec<&str> = output.lines().collect();
+        assert_eq!(lines[0], "```");
+        assert_eq!(lines[1], "some code");
+        assert_eq!(lines[2], "```");
+        assert_eq!(lines[4], "| a   | b   |");
+    }
+
+    #[test]
+    fn format_document_supports_tilde_fences_and_indented_fences() {
+        let input = "\
+~~~
+| a | b |
+|---|---|
+~~~
+
+  ```
+  | x | y |
+  |---|---|
+  ```
+";
+        assert_eq!(format_document(input, false).unwrap(), input);
+    }
+
+    #[test]
+    fn format_document_requires_a_closing_fence_at_least_as_long_as_the_opening_one() {
+        let input = "\
+````
+| a | b |
+|---|---|
+```
+still inside the fence
+````
+after the fence
+
+| x | y |
+|---|---|
+| 1 | 2 |
+";
+        let output = format_document(input, false).unwrap();
+        let lines: Vec<&str> = output.lines().collect();
+        // Everything up to and including the real closing fence is untouched.
+        assert_eq!(lines[0], "````");
+        assert_eq!(lines[1], "| a | b |");
+        assert_eq!(lines[3], "```");
+        assert_eq!(lines[5], "````");
+        assert_eq!(lines[6], "after the fence");
+        assert_eq!(lines[8], "| x   | y   |");
     }
 }
 
