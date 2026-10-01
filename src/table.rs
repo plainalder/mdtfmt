@@ -54,12 +54,23 @@ pub fn format_document(input: &str, lenient: bool) -> Result<String, FormatError
             out.push('\n');
             i += 1;
         } else if is_table_row(lines[i]) && i + 1 < lines.len() && is_separator_row(lines[i + 1]) {
-            let start = i;
+            let mut block = vec![lines[i].to_string(), lines[i + 1].to_string()];
             let mut end = i + 2;
             while end < lines.len() && is_table_row(lines[end]) {
+                let mut row = lines[end].trim_end().to_string();
                 end += 1;
+                // A trailing backslash means the author wrapped the row by
+                // hand; fold the next line in so it stays one logical row.
+                while ends_with_continuation(&row) && end < lines.len() && !lines[end].trim().is_empty() {
+                    row.pop();
+                    row.truncate(row.trim_end().len());
+                    row.push(' ');
+                    row.push_str(lines[end].trim());
+                    end += 1;
+                }
+                block.push(row);
             }
-            let table = parse_table(&lines[start..end], lenient)?;
+            let table = parse_table(&block, lenient)?;
             out.push_str(&render_table(&table));
             i = end;
         } else {
@@ -83,6 +94,12 @@ fn fence_marker(line: &str) -> Option<(char, usize)> {
     }
     let len = trimmed.chars().take_while(|&c| c == ch).count();
     (len >= 3).then_some((ch, len))
+}
+
+/// True when the line ends in an unescaped backslash, i.e. an odd number of
+/// trailing backslashes (an even number is just escaped backslashes).
+fn ends_with_continuation(line: &str) -> bool {
+    line.trim_end().chars().rev().take_while(|&c| c == '\\').count() % 2 == 1
 }
 
 fn is_table_row(line: &str) -> bool {
@@ -148,9 +165,9 @@ fn parse_alignment(cell: &str) -> Alignment {
     }
 }
 
-fn parse_table(block: &[&str], lenient: bool) -> Result<Table, FormatError> {
-    let header = split_row(block[0]);
-    let separator = split_row(block[1]);
+fn parse_table<S: AsRef<str>>(block: &[S], lenient: bool) -> Result<Table, FormatError> {
+    let header = split_row(block[0].as_ref());
+    let separator = split_row(block[1].as_ref());
 
     if !lenient && header.len() != separator.len() {
         return Err(FormatError {
@@ -171,7 +188,7 @@ fn parse_table(block: &[&str], lenient: bool) -> Result<Table, FormatError> {
 
     let mut rows = Vec::with_capacity(block.len().saturating_sub(2));
     for (offset, line) in block[2..].iter().enumerate() {
-        let cells = split_row(line);
+        let cells = split_row(line.as_ref());
         if !lenient && cells.len() != width {
             return Err(FormatError {
                 message: format!(
@@ -417,6 +434,30 @@ Middle text.
     fn strict_mode_error_propagates_through_format_document() {
         let input = "| a | b |\n|---|---|\n| 1 |\n";
         assert!(format_document(input, false).is_err());
+    }
+
+    #[test]
+    fn ends_with_continuation_ignores_escaped_backslashes() {
+        assert!(ends_with_continuation(r"| a | b \"));
+        assert!(!ends_with_continuation(r"| a | b \\"));
+        assert!(!ends_with_continuation("| a | b |"));
+    }
+
+    #[test]
+    fn format_document_joins_a_row_wrapped_with_a_trailing_backslash() {
+        let input = "| a | b |\n|---|---|\n| 1 | long \\\n  text |\n| 2 | x |\n";
+        let output = format_document(input, false).unwrap();
+        let lines: Vec<&str> = output.lines().collect();
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines[2], "| 1   | long text |");
+        assert_eq!(lines[3], "| 2   | x         |");
+    }
+
+    #[test]
+    fn format_document_keeps_a_trailing_backslash_before_a_blank_line() {
+        let input = "| a |\n|---|\n| x \\\n\nafter\n";
+        let output = format_document(input, true).unwrap();
+        assert!(output.ends_with("\n\nafter\n"));
     }
 
     #[test]

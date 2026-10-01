@@ -70,7 +70,17 @@ cells. Column widths account for wide East Asian characters (CJK, Hangul,
 fullwidth forms), so tables with those headers or cell contents still line
 up. Fenced code blocks (`` ``` `` or `~~~`) are left untouched, so a code
 sample that happens to contain pipe characters isn't mistaken for a table.
-It does not yet handle tables with multi-line or wrapped cell content.
+A body row that was wrapped by hand with a trailing backslash is joined
+back into a single row, with the lines separated by one space:
+
+```
+| 1 | long \
+  text |
+```
+
+becomes `| 1 | long text |`. Markdown has no real multi-line cells, so
+there is nothing else to preserve; use `<br>` inside a cell if you need a
+line break in the rendered output.
 
 ## License
 
